@@ -1,0 +1,26 @@
+# BigWigs packager / CurseForge metadata
+# https://github.com/BigWigsMods/packager
+#
+# Addon sources live in BeanCounterForever/ (so the repository is easy to browse).
+# The hand-built player zip has that folder at the top level:
+# BeanCounterForever/BeanCounterForever.toc, not
+# BeanCounterForever/BeanCounterForever/...
+#
+# If you later run BigWigs packager against this repository, point it at the
+# BeanCounterForever subdirectory (or flatten the toc/lua to the repo root)
+# so the zip does not nest an extra folder. package-as must match the folder
+# and toc name.
+package-as: BeanCounterForever
+
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown
+
+# Do not ship tests, repo docs, or git metadata inside the player zip.
+ignore:
+  - test
+  - screenshots
+  - README.md
+  - CHANGELOG.md
+  - .gitignore
+  - .github

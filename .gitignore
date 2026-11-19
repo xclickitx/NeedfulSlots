@@ -1,0 +1,17 @@
+# Local environments and Python leftovers
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Packager / zip output (the player zip is built separately)
+.release/
+*.zip
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+*.swp
+*~
