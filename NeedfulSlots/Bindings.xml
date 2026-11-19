@@ -1,0 +1,6 @@
+<Bindings>
+	<Binding name="CLICK NeedfulSlotsButton1:NeedfulSlotsKey" header="NEEDFULSLOTS" category="ADDONS"/>
+	<Binding name="CLICK NeedfulSlotsButton2:NeedfulSlotsKey" category="ADDONS"/>
+	<Binding name="CLICK NeedfulSlotsButton3:NeedfulSlotsKey" category="ADDONS"/>
+	<Binding name="CLICK NeedfulSlotsButton4:NeedfulSlotsKey" category="ADDONS"/>
+</Bindings>

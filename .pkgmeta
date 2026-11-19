@@ -1,16 +1,16 @@
 # BigWigs packager / CurseForge metadata
 # https://github.com/BigWigsMods/packager
 #
-# Addon sources live in BeanCounterForever/ (so the repository is easy to browse).
+# Addon sources live in NeedfulSlots/ (so the repository is easy to browse).
 # The hand-built player zip has that folder at the top level:
-# BeanCounterForever/BeanCounterForever.toc, not
-# BeanCounterForever/BeanCounterForever/...
+# NeedfulSlots/NeedfulSlots.toc, not
+# NeedfulSlots/NeedfulSlots/...
 #
 # If you later run BigWigs packager against this repository, point it at the
-# BeanCounterForever subdirectory (or flatten the toc/lua to the repo root)
+# NeedfulSlots subdirectory (or flatten the toc/lua to the repo root)
 # so the zip does not nest an extra folder. package-as must match the folder
 # and toc name.
-package-as: BeanCounterForever
+package-as: NeedfulSlots
 
 manual-changelog:
   filename: CHANGELOG.md

@@ -1,35 +1,74 @@
--- Bean Counter 1.0.2 by ClickIT, for WoW Forever (Interface 16001).
+-- Needful Slots 1.0.3 by ClickIT, for WoW Forever (Interface 16001).
+-- Formerly "Bean Counter" (folder BeanCounterForever, SavedVariables
+-- BeanCounterCharDB, /beans and /tally). Renamed in 1.0.3.
 --
--- A small, quiet bar (title: Bean Counter; folder: BeanCounterForever, so it
--- does not clash with Auctioneer's BeanCounter module) that tracks up to four
--- items from your bags. Alt-right-click a bag item to start or stop tracking
--- it (one gesture). Alt-left-click is left alone: Bagnon uses it for Flash
--- Find (on by default) and Auctionator's default "select item to sell"
--- shortcut is also Alt-left-click when the auction house is open. Shift-clicks
--- stay with the default UI (stack split and chat linking). The bar is only
--- icons; when unlocked, left-drag an icon to move it. The count is bags only.
--- An optional goal turns the number green when you reach it; it keeps
--- counting past the goal. No sounds, popups or flashes. The bar hides when
--- nothing is being tracked.
+-- A small, quiet bar that tracks up to four items from your bags. Each icon
+-- shows a live bag count (white, green once an optional goal is met, still
+-- counting past it) and is also a use button: plain left-click uses the item
+-- (eat, drink, open, place) through a SecureActionButtonTemplate.
 --
--- Client API: C_Item.GetItemCount / GetItemInfo / GetItemIconByID, with
--- GetItemCount / GetItemIcon fallbacks (the same pattern as Alchemist's
--- Cookbook). Bag clicks are hooked with hooksecurefunc on
--- ContainerFrameItemButton_OnModifiedClick / _OnClick and, if present,
--- ContainerFrameItemButtonMixin, which is also what Bagnon/BagBrother's
--- item buttons inherit. Counts refresh on BAG_UPDATE, bucketed with
--- C_Timer.After so a burst of bag events does not scan every time.
+-- Bag side: Alt-right-click a bag item to start or stop tracking it (one
+-- gesture). Alt-left-click is left alone (Bagnon Flash Find; Auctionator's
+-- default sell shortcut). Shift-clicks stay with the default UI.
+--
+-- Bar side: left-click uses, right-click sets a goal, Alt-click stops
+-- tracking, left-drag moves the bar when unlocked. No sounds or flashes. The
+-- bar hides when nothing is tracked.
+--
+-- Combat lockdown: the icons are protected frames, so their attributes,
+-- Show/Hide, size and anchors (and the bar's, which becomes protected as their
+-- parent) cannot change in combat. Any add/remove/lock/reset that happens in
+-- combat is saved at once but the bar layout is queued and applied on
+-- PLAYER_REGEN_ENABLED. Counts and colours still update during combat.
+--
+-- Client API (all present in the Forever 1.60.1 FrameXML / API docs):
+-- C_Item.GetItemCount / GetItemInfo / GetItemIconByID / GetItemSpell /
+-- IsUsableItem (with old global fallbacks), InCombatLockdown,
+-- SecureActionButtonTemplate (type1 "item", useOnKeyDown false,
+-- ATTRIBUTE_NOOP), hooksecurefunc on the container item button click
+-- handlers. Bag counts refresh on BAG_UPDATE, bucketed with C_Timer.After.
+--
+-- Key Bindings (Bindings.xml, loaded by the client from the add-on folder):
+-- "Use Needful Slot 1-4" under the Needful Slots header (AddOns category).
+-- Each is a secure CLICK binding, "CLICK NeedfulSlotsButtonN:NeedfulSlotsKey",
+-- so it works in combat without taint. The virtual button "NeedfulSlotsKey"
+-- has its own attributes ("*type-NeedfulSlotsKey" / "*item-NeedfulSlotsKey"),
+-- so a key bound with a modifier (Alt-1, Shift-F) still uses the item and
+-- never triggers the bar's Alt-click "stop tracking".
+--
+-- Globals: only NeedfulSlotsCharDB (SavedVariables), SLASH_NEEDFULSLOTS1/2,
+-- the named frames NeedfulSlotsFrame / NeedfulSlotsGoalBox /
+-- NeedfulSlotsButton1-4 (the CLICK bindings need button names), and the Key
+-- Bindings labels BINDING_HEADER_NEEDFULSLOTS and
+-- BINDING_NAME_CLICK NeedfulSlotsButton1-4:NeedfulSlotsKey. The add-on table
+-- lives in the private add-on namespace (the second vararg).
 
-local addonName = ... or "BeanCounterForever"
+local addonName, ns = ...
+addonName = addonName or "NeedfulSlots"
+ns = ns or {}
 
 local T = {}
-_G.BeanCounterForever = T
-T.VERSION = "1.0.2"
-T.NAME = "Bean Counter"
+ns.T = T
+T.VERSION = "1.0.3"
+T.NAME = "Needful Slots"
 T.MAX = 4
+-- Virtual mouse button the Key Bindings click with (see Bindings.xml).
+T.KEY_BUTTON = "NeedfulSlotsKey"
+T.BUTTON_PREFIX = "NeedfulSlotsButton"
+
+-- Key Bindings menu labels (the client reads these globals by name).
+BINDING_HEADER_NEEDFULSLOTS = "Needful Slots"
+for i = 1, T.MAX do
+	_G["BINDING_NAME_CLICK " .. T.BUTTON_PREFIX .. i .. ":" .. T.KEY_BUTTON] = "Use Needful Slot " .. i
+end
+
+-- The binding command for slot i, e.g. "CLICK NeedfulSlotsButton1:NeedfulSlotsKey".
+function T.BindingCommand(i)
+	return "CLICK " .. T.BUTTON_PREFIX .. i .. ":" .. T.KEY_BUTTON
+end
 
 local floor, format, tonumber, tostring, type, select = math.floor, string.format, tonumber, tostring, type, select
-local pairs, ipairs, pcall = pairs, ipairs, pcall
+local pairs, ipairs, pcall, tremove = pairs, ipairs, pcall, table.remove
 local wipe = wipe or function(t) for k in pairs(t) do t[k] = nil end return t end
 
 local DEFAULTS = {
@@ -42,7 +81,7 @@ local DEFAULTS = {
 -- Chat
 ---------------------------------------------------------------------------
 
-local PREFIX = "|cffffd100Bean Counter|r: "
+local PREFIX = "|cffffd100Needful Slots|r: "
 local function out(msg, ...)
 	if select("#", ...) > 0 then msg = format(msg, ...) end
 	local frame = DEFAULT_CHAT_FRAME
@@ -162,21 +201,45 @@ local function sanitizeItems(list)
 	return outList
 end
 
+local function copyOld(saved, old)
+	saved.items = {}
+	for i, it in ipairs(old.items) do
+		if type(it) == "table" then
+			saved.items[i] = { id = it.id, goal = it.goal }
+		end
+	end
+	if saved.pos == nil and type(old.pos) == "table" then
+		saved.pos = { old.pos[1], old.pos[2], old.pos[3], old.pos[4] }
+	end
+	if saved.locked == nil then saved.locked = old.locked end
+end
+
+local function hasItems(t)
+	return type(t) == "table" and type(t.items) == "table" and #t.items > 0
+end
+
+-- Settings migration. If this character has no Needful Slots data yet, copy
+-- an old save that is loaded in this session:
+--   1. BeanCounterCharDB (Bean Counter 1.0.0-1.0.2), then nil it so it is
+--      not copied again and does not linger in memory.
+--   2. TallyCharDB (the pre-release "Tally" build), left untouched.
+-- Note: WoW stores SavedVariables per add-on folder, so the old
+-- BeanCounterForever.lua file is only loaded while the old BeanCounterForever
+-- folder is still installed. Listing BeanCounterCharDB in this TOC would not
+-- read that file (it would read/write NeedfulSlots.lua), so it is NOT listed.
+-- The installer instead copies WTF/.../SavedVariables/BeanCounterForever.lua
+-- to NeedfulSlots.lua with the table renamed; this code covers the case where
+-- both folders happen to be loaded together.
 function T.InitDB(saved)
 	saved = type(saved) == "table" and saved or {}
-	-- If this character has no Bean Counter data yet, copy a leftover Tally save
-	-- from the same session (Tally's WTF file is not loaded once that add-on is gone).
-	if type(TallyCharDB) == "table" then
-		local empty = type(saved.items) ~= "table" or #saved.items == 0
-		if empty and type(TallyCharDB.items) == "table" and #TallyCharDB.items > 0 then
-			saved.items = {}
-			for i, it in ipairs(TallyCharDB.items) do
-				if type(it) == "table" then
-					saved.items[i] = { id = it.id, goal = it.goal }
-				end
-			end
-			if saved.pos == nil then saved.pos = TallyCharDB.pos end
-			if saved.locked == nil then saved.locked = TallyCharDB.locked end
+	if not hasItems(saved) then
+		if hasItems(BeanCounterCharDB) then
+			copyOld(saved, BeanCounterCharDB)
+			BeanCounterCharDB = nil
+			T.migrated = "BeanCounter"
+		elseif hasItems(TallyCharDB) then
+			copyOld(saved, TallyCharDB)
+			T.migrated = "Tally"
 		end
 	end
 	copyDefaults(saved, DEFAULTS)
@@ -192,7 +255,24 @@ end
 -- Tracked list (no UI)
 ---------------------------------------------------------------------------
 
-local lastTouched -- itemID last added or clicked on the bar, for /beans goal N
+local combatNoted -- "after combat" chat note already shown this fight
+
+-- WoW's own "do nothing" attribute value (SecureTemplates.lua).
+local NOOP = ATTRIBUTE_NOOP or ""
+
+local function inCombat()
+	return InCombatLockdown and InCombatLockdown() and true or false
+end
+T.InCombat = inCombat
+
+-- One short chat note per fight when a change has to wait for combat to end.
+local function noteQueued()
+	if combatNoted then return end
+	combatNoted = true
+	out("The bar will update when combat ends.")
+end
+
+local lastTouched -- itemID last added or clicked on the bar, for /needful goal N
 
 function T.Items()
 	return db and db.items or {}
@@ -222,6 +302,7 @@ function T.Add(id, link)
 	db.items[#db.items + 1] = { id = id, goal = nil }
 	lastTouched = id
 	out("Tracking %s.", link or itemLink(id))
+	if inCombat() then noteQueued() end
 	T.Refresh()
 	return true
 end
@@ -232,9 +313,10 @@ function T.Remove(id)
 	local _, i = T.Find(id)
 	if not i then return false, "missing" end
 	local link = itemLink(id)
-	table.remove(db.items, i)
+	tremove(db.items, i)
 	if lastTouched == id then lastTouched = db.items[1] and db.items[1].id end
 	out("Removed %s.", link)
+	if inCombat() then noteQueued() end
 	T.Refresh()
 	return true
 end
@@ -251,6 +333,7 @@ function T.Clear()
 	wipe(db.items)
 	lastTouched = nil
 	out("Cleared all tracked items.")
+	if inCombat() then noteQueued() end
 	T.Refresh()
 end
 
@@ -275,6 +358,7 @@ function T.SetLocked(locked)
 	if not db then return end
 	db.locked = locked and true or false
 	out("Bar %s.", db.locked and "locked" or "unlocked")
+	if inCombat() then noteQueued() end
 	T.Refresh()
 	return db.locked
 end
@@ -283,6 +367,7 @@ function T.ResetPosition()
 	if not db then return end
 	db.pos = nil
 	out("Bar moved back to the default position.")
+	if inCombat() then noteQueued() end
 	T.Refresh()
 end
 
@@ -325,7 +410,7 @@ function T.ItemFromButton(btn)
 		end
 	end
 	if bag ~= nil and slot then
-		-- Skip bank / other non-inventory bags; /beans add still works for those.
+		-- Skip bank / other non-inventory bags; /needful add still works for those.
 		if isInventoryBag(bag) == false then return end
 		if C_Container and C_Container.GetContainerItemInfo then
 			local ok, info = pcall(C_Container.GetContainerItemInfo, bag, slot)
@@ -396,6 +481,7 @@ end
 local frame, slots, goalBox, pendingRefresh
 slots = {}
 local dragged
+local layoutPending -- a layout change is waiting for combat to end
 
 local function savePosition()
 	if not (db and frame and frame.GetPoint) then return end
@@ -448,6 +534,22 @@ local function showGoalBox(slot, id)
 	if goalBox.SetFocus then goalBox:SetFocus() end
 end
 
+-- True when the item has a Use: effect or the client calls it usable.
+function T.HasUse(id)
+	if not id then return false end
+	local getSpell = (C_Item and C_Item.GetItemSpell) or GetItemSpell
+	if getSpell then
+		local ok, spell = pcall(getSpell, id)
+		if ok and spell then return true end
+	end
+	local usable = (C_Item and C_Item.IsUsableItem) or IsUsableItem
+	if usable then
+		local ok, u = pcall(usable, id)
+		if ok and u then return true end
+	end
+	return false
+end
+
 local function slotTooltip(slot)
 	if not GameTooltip or not slot.itemID then return end
 	if GameTooltip.SetOwner then GameTooltip:SetOwner(slot, "ANCHOR_RIGHT") end
@@ -467,13 +569,63 @@ local function slotTooltip(slot)
 		else
 			GameTooltip:AddLine("Goal: none", 0.7, 0.7, 0.7)
 		end
+		if T.HasUse(id) then
+			local key = slot.index and T.BoundKey(slot.index)
+			if key then
+				GameTooltip:AddLine(format("Left-click or %s: use", key), 0.8, 0.8, 0.8)
+			else
+				GameTooltip:AddLine("Left-click: use", 0.8, 0.8, 0.8)
+			end
+		end
 		GameTooltip:AddLine("Alt-click: stop tracking · Right-click: set goal · Drag to move", 0.8, 0.8, 0.8)
 	end
 	if GameTooltip.Show then GameTooltip:Show() end
 end
 
+-- Secure use action for a slot. Only a plain (no modifier) left-click uses
+-- the item: "type1" matches only with no modifier held, and "alt-type1" is set
+-- to ATTRIBUTE_NOOP as an explicit guard. Right-click has no secure action.
+-- The Key Bindings click with the virtual button T.KEY_BUTTON, which has its
+-- own "*" (any modifier) attributes, so a bound key uses the item whatever
+-- modifier it was bound with. An empty slot has no type: the key does nothing.
+local KEY_TYPE = "*type-" .. T.KEY_BUTTON
+local KEY_ITEM = "*item-" .. T.KEY_BUTTON
+local function setUse(slot, id)
+	if not slot.SetAttribute then return end
+	local item = id and ("item:" .. id) or nil
+	slot:SetAttribute("type1", id and "item" or nil)
+	slot:SetAttribute("item", item)
+	slot:SetAttribute(KEY_TYPE, id and "item" or nil)
+	slot:SetAttribute(KEY_ITEM, item)
+end
+
+-- Bound key text for slot i ("Alt-1"), or nil.
+function T.BoundKey(i)
+	if not GetBindingKey then return end
+	local ok, key = pcall(GetBindingKey, T.BindingCommand(i))
+	if not ok or not key then return end
+	if GetBindingText then
+		local ok2, text = pcall(GetBindingText, key)
+		if ok2 and text and text ~= "" then return text end
+	end
+	return key
+end
+
+-- After a drag, the release can also count as a click. Swallow that one
+-- click in PostClick and pause the secure use for this frame.
+local function endDrag(slot)
+	after(0, function()
+		dragged = false
+		if not slot.itemID then return end
+		if inCombat() then layoutPending = true return end
+		setUse(slot, slot.itemID)
+	end)
+end
+
 local function makeSlot(parent, i)
-	local b = CreateFrame("Button", nil, parent)
+	-- Named so the Key Bindings (CLICK NeedfulSlotsButtonN:...) can find it.
+	-- Button N always shows the Nth tracked item.
+	local b = CreateFrame("Button", T.BUTTON_PREFIX .. i, parent, "SecureActionButtonTemplate")
 	b:SetSize(36, 36)
 	b.index = i
 	local tex = b:CreateTexture(nil, "ARTWORK")
@@ -482,30 +634,42 @@ local function makeSlot(parent, i)
 	local fs = b:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
 	fs:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -1, 1)
 	b.count = fs
-	if b.RegisterForClicks then b:RegisterForClicks("LeftButtonUp", "RightButtonUp") end
+	-- Fire on release only, whatever the ActionButtonUseKeyDown CVar says,
+	-- so one click or key press is one use and PostClick runs once. "AnyUp"
+	-- (not just Left/RightButtonUp) so the Key Bindings' virtual button
+	-- T.KEY_BUTTON is delivered too; other mouse buttons have no type and do
+	-- nothing.
+	if b.SetAttribute then
+		b:SetAttribute("useOnKeyDown", false)
+		b:SetAttribute("alt-type1", NOOP)
+	end
+	if b.RegisterForClicks then b:RegisterForClicks("AnyUp") end
 	if b.RegisterForDrag then b:RegisterForDrag("LeftButton") end
-	b:SetScript("OnEnter", function(self) slotTooltip(self) end)
+	b:SetScript("OnEnter", slotTooltip)
 	b:SetScript("OnLeave", function()
 		if GameTooltip and GameTooltip.Hide then GameTooltip:Hide() end
 	end)
 	b:SetScript("OnDragStart", function(self)
-		if db and db.locked then return end
-		if not frame then return end
+		if (db and db.locked) or not frame or inCombat() then return end
 		dragged = true
+		if self.SetAttribute then self:SetAttribute("type1", NOOP) end
 		frame:StartMoving()
 	end)
 	b:SetScript("OnDragStop", function(self)
 		if not frame then return end
 		frame:StopMovingOrSizing()
 		savePosition()
+		if dragged then endDrag(self) end
 	end)
-	b:SetScript("OnClick", function(self, button)
-		if dragged then
-			dragged = false
-			return
-		end
+	-- OnClick belongs to the secure template (it uses the item). Our
+	-- non-secure clicks run after it, in PostClick.
+	b:SetScript("PostClick", function(self, button)
+		-- A Key Binding press only uses the item (secure OnClick above). It
+		-- never removes (even if bound with Alt) or opens the goal box.
+		if button == T.KEY_BUTTON then return end
+		if button ~= "LeftButton" and button ~= "RightButton" then return end
+		if dragged then return end
 		if not self.itemID then return end
-		-- Plain left-click does nothing. Alt-click (either button) stops tracking.
 		if IsAltKeyDown and IsAltKeyDown() then
 			hideGoalBox()
 			T.Remove(self.itemID)
@@ -521,7 +685,7 @@ end
 
 local function buildFrame()
 	if frame or not CreateFrame then return frame end
-	frame = CreateFrame("Frame", "BeanCounterForeverFrame", UIParent, "BackdropTemplate")
+	frame = CreateFrame("Frame", "NeedfulSlotsFrame", UIParent, "BackdropTemplate")
 	frame:Hide()
 	frame:SetSize(40, 44)
 	frame:SetFrameStrata("MEDIUM")
@@ -530,7 +694,7 @@ local function buildFrame()
 	frame:EnableMouse(true)
 	frame:RegisterForDrag("LeftButton")
 	frame:SetScript("OnDragStart", function(self)
-		if db and db.locked then return end
+		if (db and db.locked) or inCombat() then return end
 		self:StartMoving()
 	end)
 	frame:SetScript("OnDragStop", function(self)
@@ -549,7 +713,7 @@ local function buildFrame()
 	for i = 1, T.MAX do
 		slots[i] = makeSlot(frame, i)
 	end
-	goalBox = CreateFrame("EditBox", "BeanCounterForeverGoalBox", frame, "InputBoxTemplate")
+	goalBox = CreateFrame("EditBox", "NeedfulSlotsGoalBox", frame, "InputBoxTemplate")
 	goalBox:SetSize(48, 20)
 	goalBox:SetAutoFocus(false)
 	if goalBox.SetNumeric then goalBox:SetNumeric(true) end
@@ -563,14 +727,40 @@ local function buildFrame()
 	goalBox:SetScript("OnEscapePressed", hideGoalBox)
 	T._frame = frame
 	T._goalBox = goalBox
+	T._slots = slots
 	return frame
 end
 
+-- Count text and colour only. Safe in combat (FontStrings are not protected).
+-- Uses the item each icon currently shows; a goal change applies right away.
+function T.UpdateCounts()
+	for i = 1, T.MAX do
+		local slot = slots[i]
+		if not slot then break end
+		local id = slot.itemID
+		if id and slot.count and slot.count.SetText then
+			local it = T.Find(id)
+			local goal = it and it.goal
+			local count = T.Count(id)
+			slot.count:SetText(T.CountText(count, goal))
+			if slot.count.SetTextColor then slot.count:SetTextColor(T.CountColor(count, goal)) end
+		end
+	end
+end
+
+-- Full layout: icons, secure use attributes, size, anchors, visibility.
+-- In combat only the counts update; the layout waits for PLAYER_REGEN_ENABLED.
 function T.Refresh()
 	if not db then return end
+	if inCombat() then
+		layoutPending = true
+		T.UpdateCounts()
+		return
+	end
 	if not frame then
 		if CreateFrame then buildFrame() else return end
 	end
+	layoutPending = false
 	applyPosition()
 	applyLock()
 	local n = #db.items
@@ -584,20 +774,17 @@ function T.Refresh()
 			slot.itemID = it.id
 			local tex = itemIcon(it.id)
 			if slot.icon and slot.icon.SetTexture then slot.icon:SetTexture(tex or "Interface\\Icons\\INV_Misc_QuestionMark") end
-			local count = T.Count(it.id)
-			if slot.count and slot.count.SetText then
-				slot.count:SetText(T.CountText(count, it.goal))
-				if slot.count.SetTextColor then slot.count:SetTextColor(T.CountColor(count, it.goal)) end
-			end
+			if not dragged then setUse(slot, it.id) end
 			slot:ClearAllPoints()
-			local x = 4 + (i - 1) * 38
-			slot:SetPoint("LEFT", frame, "LEFT", x, 0)
+			slot:SetPoint("LEFT", frame, "LEFT", 4 + (i - 1) * 38, 0)
 			slot:Show()
 		else
 			slot.itemID = nil
+			setUse(slot, nil)
 			slot:Hide()
 		end
 	end
+	T.UpdateCounts()
 	if n == 0 then
 		hideGoalBox()
 		frame:Hide()
@@ -607,6 +794,16 @@ function T.Refresh()
 	if goalBox and goalBox.IsShown and goalBox:IsShown() then
 		if not goalBox.itemID or not T.Find(goalBox.itemID) then hideGoalBox() end
 	end
+end
+
+-- Leaving combat: apply anything that was queued.
+function T.OnRegenEnabled()
+	combatNoted = false
+	if layoutPending then T.Refresh() end
+end
+
+function T.LayoutPending()
+	return layoutPending and true or false
 end
 
 function T.RequestRefresh()
@@ -624,14 +821,16 @@ end
 
 local function help()
 	out("Alt-right-click a bag item to start or stop tracking it (up to %d).", T.MAX)
-	out("/beans add [item]    Track an item (shift-click it into the chat box)")
-	out("/beans goal [item] n Set a goal, or /beans goal n for the last item")
-	out("/beans remove [item] Stop tracking an item (or the last one)")
-	out("/beans clear         Remove every item")
-	out("/beans lock          Lock the bar in place (or /beans unlock)")
-	out("/beans reset         Move the bar back to the default position")
-	out("/beans help          This list")
-	out("/tally still works as an alias for /beans.")
+	out("On the bar: left-click uses the item, right-click sets a goal, Alt-click stops tracking.")
+	out("Keybinds: Esc > Options > Game > Keybindings > AddOns > Needful Slots (Use Needful Slot 1-4).")
+	out("/needful add [item]    Track an item (shift-click it into the chat box)")
+	out("/needful goal [item] n Set a goal, or /needful goal n for the last item")
+	out("/needful remove [item] Stop tracking an item (or the last one)")
+	out("/needful clear         Remove every item")
+	out("/needful lock          Lock the bar in place (or /needful unlock)")
+	out("/needful reset         Move the bar back to the default position")
+	out("/needful help          This list")
+	out("/nslots works the same as /needful.")
 end
 
 local function pickTarget(rest, needId)
@@ -639,12 +838,12 @@ local function pickTarget(rest, needId)
 	if id then return id, rest end
 	if lastTouched and T.Find(lastTouched) then return lastTouched end
 	if db and #db.items == 1 then return db.items[1].id end
-	if needId then out("Shift-click an item into the command, e.g. /beans %s [item].", needId) end
+	if needId then out("Shift-click an item into the command, e.g. /needful %s [item].", needId) end
 	return nil
 end
 
 function T.Slash(msg)
-	if not db then T.InitDB(BeanCounterCharDB) end
+	if not db then T.InitDB(NeedfulSlotsCharDB) end
 	msg = msg or ""
 	local cmd, rest = msg:match("^%s*(%S*)%s*(.-)%s*$")
 	cmd = (cmd or ""):lower()
@@ -658,23 +857,23 @@ function T.Slash(msg)
 					out("%s  %d", itemLink(it.id), count)
 				end
 			end
-			out("Bar is %s. /beans help for commands.", db.locked and "locked" or "unlocked")
+			out("Bar is %s. /needful help for commands.", db.locked and "locked" or "unlocked")
 		else
 			help()
 		end
 	elseif cmd == "add" then
 		local id = parseItem(rest)
-		if not id then out("Shift-click an item into the command: /beans add [item].") return end
+		if not id then out("Shift-click an item into the command: /needful add [item].") return end
 		T.Add(id, rest)
 	elseif cmd == "goal" then
 		local idFromLink = parseItem(rest)
 		local n = tonumber((rest or ""):match("(%d+)%s*$"))
-		-- "/beans goal 20" vs "/beans goal [Item] 20" vs "/beans goal [Item]" (clear if no number after the link).
+		-- "/needful goal 20" vs "/needful goal [Item] 20" vs "/needful goal [Item]" (clear if no number after the link).
 		local id
 		if idFromLink and n and tostring(n) ~= tostring(idFromLink) then
 			id = idFromLink
 		elseif idFromLink and (rest or ""):find("item:", 1, true) then
-			-- "/beans goal [Item] 20" — n is the last number, id is the item.
+			-- "/needful goal [Item] 20" — n is the last number, id is the item.
 			id = idFromLink
 			local afterLink = rest:match("|h|r%s*(%d+)%s*$") or rest:match("%]%s*(%d+)%s*$")
 			n = tonumber(afterLink)
@@ -703,9 +902,9 @@ function T.Slash(msg)
 	end
 end
 
-SLASH_BEANCOUNTER1 = "/beans"
-SLASH_BEANCOUNTER2 = "/tally"
-if SlashCmdList then SlashCmdList.BEANCOUNTER = function(msg) T.Slash(msg) end end
+SLASH_NEEDFULSLOTS1 = "/needful"
+SLASH_NEEDFULSLOTS2 = "/nslots"
+if SlashCmdList then SlashCmdList.NEEDFULSLOTS = function(msg) T.Slash(msg) end end
 
 ---------------------------------------------------------------------------
 -- Events
@@ -719,19 +918,22 @@ if CreateFrame then
 	pcall(ev.RegisterEvent, ev, "BAG_UPDATE")
 	pcall(ev.RegisterEvent, ev, "BAG_UPDATE_DELAYED")
 	pcall(ev.RegisterEvent, ev, "PLAYER_ENTERING_WORLD")
+	ev:RegisterEvent("PLAYER_REGEN_ENABLED")
 	ev:SetScript("OnEvent", function(_, event, a1)
 		if event == "ADDON_LOADED" and a1 == addonName then
-			BeanCounterCharDB = T.InitDB(BeanCounterCharDB)
+			NeedfulSlotsCharDB = T.InitDB(NeedfulSlotsCharDB)
 			T.HookBags()
 		elseif event == "ADDON_LOADED" then
 			-- Bagnon / default bag UI may load after us.
 			T.HookBags()
 		elseif event == "PLAYER_LOGIN" then
-			if not db then BeanCounterCharDB = T.InitDB(BeanCounterCharDB) end
+			if not db then NeedfulSlotsCharDB = T.InitDB(NeedfulSlotsCharDB) end
 			T.HookBags()
 			T.Refresh()
 		elseif not db then
 			return
+		elseif event == "PLAYER_REGEN_ENABLED" then
+			T.OnRegenEnabled()
 		elseif event == "BAG_UPDATE" or event == "BAG_UPDATE_DELAYED" or event == "PLAYER_ENTERING_WORLD" then
 			T.RequestRefresh()
 		end

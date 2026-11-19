@@ -1,6 +1,16 @@
 # Changelog
 
-All notable changes to Bean Counter are listed here.
+All notable changes to Needful Slots (formerly Bean Counter) are listed here.
+
+## 1.0.3
+
+- **Renamed to Needful Slots.** Folder, TOC and Lua file are now `NeedfulSlots`, saved variables are `NeedfulSlotsCharDB`, and the slash commands are `/needful` and `/nslots` (`/beans` and `/tally` are gone). Chat messages start with "Needful Slots:".
+- **Left-click an icon to use the item.** Each icon on the bar is now also a use button: eat or drink tracked food, open a container, place a fishbowl, and so on. Items with no use do nothing. The tooltip shows "Left-click: use" when the item has a use.
+- Only a plain left-click uses the item. Alt-click still stops tracking (and never uses the item), right-click still sets a goal, and left-drag still moves the bar when it is unlocked (the release after a drag does not use the item).
+- Combat: WoW does not let add-ons change use buttons during combat. Tracking, untracking, lock, reset and the bar hiding/showing are saved right away but the bar itself updates when combat ends (chat says so once per fight). Counts, colours and goals still update in combat, and using an item works in combat.
+- **Keybinds.** Esc > Options > Keybindings > AddOns > Needful Slots has "Use Needful Slot 1" to "Use Needful Slot 4". Each key uses the item in that slot, like left-clicking its icon, and works in combat. An empty slot's key does nothing. The tooltip shows the bound key.
+- Settings carry over from Bean Counter: if `NeedfulSlotsCharDB` is empty and the old `BeanCounterCharDB` is loaded, it is copied over and the old table is cleared.
+- No public Lua global for the add-on table any more (it lives in the private add-on namespace).
 
 ## 1.0.2
 
