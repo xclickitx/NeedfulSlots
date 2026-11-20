@@ -2,7 +2,7 @@
 
 **Work in progress — not on CurseForge yet.**
 
-**Download:** the [GitHub releases page](https://github.com/xclickitx/BeanCounter/releases) only.
+**Download:** the [GitHub releases page](https://github.com/xclickitx/NeedfulSlots/releases) only.
 
 A small bag-item tracker for **World of Warcraft: Forever**. It keeps up to four items on a compact bar, with a live bag count and an optional goal. When you reach the goal the number turns green, and it keeps counting past it. Each icon is also a **use button**: left-click it to eat your mage food, open a clam, place a fishbowl, and so on. Bags only. No sounds, popups, or flashes. The bar hides when nothing is being tracked, and items stay on the bar at 0 so a sold stack keeps its slot.
 
@@ -49,7 +49,7 @@ A fifth item is refused, with a short note in chat. If you use Bagnon, track fro
 
 ### Keybinds
 
-Each slot can have its own key. Open **Esc > Options > Keybindings**, scroll to the **AddOns** section, and find the **Needful Slots** header with four bindings: **Use Needful Slot 1**, **Use Needful Slot 2**, **Use Needful Slot 3** and **Use Needful Slot 4** (slot 1 is the leftmost icon). Pressing a key does exactly what a left-click on that icon does: it uses the item.
+Each slot can have its own key. Open **Esc > Options > Keybindings > AddOns** and find the **Needful Slots** header with four bindings: **Use Needful Slot 1**, **Use Needful Slot 2**, **Use Needful Slot 3** and **Use Needful Slot 4** (slot 1 is the leftmost icon). Pressing a key does exactly what a left-click on that icon does: it uses the item.
 
 - Works in combat (it is a secure click, so no taint).
 - A key for an empty slot does nothing.
@@ -108,4 +108,4 @@ python run.py
 
 The suite should report `fails=0`.
 
-**AI Disclaimer:** I used an AI assistant to help write the Lua code and draft this text. Earlier versions (through 1.0.2) were tested in-game on WoW Forever. 1.0.3 is awaiting in-game testing. No AI-generated art or assets are included; the icons are Blizzard's built-in textures, and the screenshots are from the game.
+**AI Disclaimer:** I used an AI assistant to help write the Lua code and draft this text. Versions through 1.0.3 have been tested in-game on WoW Forever. No AI-generated art or assets are included; the icons are Blizzard's built-in textures, and the screenshots are from the game.
