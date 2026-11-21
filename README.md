@@ -1,8 +1,6 @@
 # Needful Slots (formerly Bean Counter)
 
-**Work in progress — not on CurseForge yet.**
-
-**Download:** the [GitHub releases page](https://github.com/xclickitx/NeedfulSlots/releases) only.
+**Download:** [Needful Slots on CurseForge](https://www.curseforge.com/wow/addons/needful-slots) or the [GitHub releases page](https://github.com/xclickitx/NeedfulSlots/releases).
 
 A small bag-item tracker for **World of Warcraft: Forever**. It keeps up to four items on a compact bar, with a live bag count and an optional goal. When you reach the goal the number turns green, and it keeps counting past it. Each icon is also a **use button**: left-click it to eat your mage food, open a clam, place a fishbowl, and so on. Bags only. No sounds, popups, or flashes. The bar hides when nothing is being tracked, and items stay on the bar at 0 so a sold stack keeps its slot.
 
